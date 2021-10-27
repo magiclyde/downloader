@@ -23,7 +23,7 @@ GLOBAL OPTIONS:
    --filename filename, -f filename  Output filename
    --dir dir, -d dir                 Output dir
    --concurrency number, -n number   Concurrency number (default: 8)
-   --proxy value, -p value           Proxy url
+   --proxy URL, -p URL               Proxy URL
    --help, -h                        show help (default: false)
 
 ```

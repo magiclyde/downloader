@@ -51,7 +51,7 @@ func main() {
 			&cli.StringFlag{
 				Name:    "proxy",
 				Aliases: []string{"p"},
-				Usage:   "Proxy url",
+				Usage:   "Proxy `URL`",
 			},
 		},
 		Action: func(c *cli.Context) error {
