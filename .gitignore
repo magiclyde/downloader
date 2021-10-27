@@ -12,3 +12,4 @@
 *.log
 bin/*
 !bin/.gitkeep
+*.pdf
