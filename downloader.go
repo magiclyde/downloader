@@ -159,8 +159,8 @@ func (d *Downloader) singleDownload() error {
 
 	d.setBar(int(resp.ContentLength))
 
-	filename := filepath.Join(d.outputDir, d.outputFilename)
-	f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0666)
+	file := filepath.Join(d.outputDir, d.outputFilename)
+	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		return err
 	}
