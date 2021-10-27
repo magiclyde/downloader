@@ -14,15 +14,15 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"sync"
 
 	"github.com/k0kubun/go-ansi"
@@ -89,18 +89,91 @@ func NewDownloader(url string, options ...Option) *Downloader {
 }
 
 func (d *Downloader) Run() error {
+	if d.outputFilename == "" {
+		d.outputFilename = path.Base(d.url)
+	}
+
 	resp, err := d.head()
 	if err != nil {
 		return err
 	}
 
-	if d.outputFilename == "" {
-		d.outputFilename = getFilename(resp)
+	//https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
+	if resp.Header.Get("Accept-Ranges") != "bytes" {
+		//服务器不支持文件断点续传
+		return d.singleDownload()
 	}
 
-	d.fileSize = getFileSize(resp)
-	d.setBar(d.fileSize)
+	d.fileSize = int(resp.ContentLength)
+	return d.multiDownload()
+}
 
+func (d *Downloader) head() (resp *http.Response, err error) {
+	req, err := d.getNewRequest("HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("cannot process, getNewRequest.err is %s", err.Error())
+	}
+
+	resp, err = d.getHttpClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cannot process, client.Do.err is %s", err.Error())
+	}
+
+	if resp.StatusCode > 299 {
+		return nil, fmt.Errorf("cannot process, response code is %d", resp.StatusCode)
+	}
+
+	return
+}
+
+func (d *Downloader) getNewRequest(method string) (*http.Request, error) {
+	r, err := http.NewRequest(method, d.url, nil)
+	if err != nil {
+		return nil, err
+	}
+	r.Header.Set("User-Agent", "go downloader")
+	return r, nil
+}
+
+func (d *Downloader) getHttpClient() *http.Client {
+	if d.proxyUrl != "" {
+		return d.getHttpClientFromProxy(d.proxyUrl)
+	}
+	return http.DefaultClient
+}
+
+func (d *Downloader) getHttpClientFromProxy(givenUrl string) *http.Client {
+	proxyUrl, _ := url.Parse(givenUrl)
+	tr := &http.Transport{
+		Proxy:           http.ProxyURL(proxyUrl),
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	return &http.Client{Transport: tr}
+}
+
+func (d *Downloader) singleDownload() error {
+	resp, err := d.getHttpClient().Get(d.url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	d.setBar(int(resp.ContentLength))
+
+	filename := filepath.Join(d.outputDir, d.outputFilename)
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	buf := make([]byte, 32*1024)
+	_, err = io.CopyBuffer(io.MultiWriter(f, d.bar), resp.Body, buf)
+	return err
+}
+
+func (d *Downloader) multiDownload() error {
+	d.setBar(d.fileSize)
 	d.doneFilePart = make([]filePart, d.totalPart)
 
 	fileParts := make([]filePart, d.totalPart)
@@ -134,54 +207,6 @@ func (d *Downloader) Run() error {
 	wg.Wait()
 
 	return d.mergeFileParts()
-}
-
-func (d *Downloader) head() (resp *http.Response, err error) {
-	req, err := d.getNewRequest("HEAD")
-	if err != nil {
-		return nil, fmt.Errorf("cannot process, getNewRequest.err is %s", err.Error())
-	}
-
-	resp, err = d.getHttpClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("cannot process, client.Do.err is %s", err.Error())
-	}
-
-	if resp.StatusCode > 299 {
-		return nil, fmt.Errorf("cannot process, response code is %d", resp.StatusCode)
-	}
-
-	//https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
-	if resp.Header.Get("Accept-Ranges") != "bytes" {
-		return nil, errors.New("服务器不支持文件断点续传")
-	}
-
-	return
-}
-
-func (d *Downloader) getNewRequest(method string) (*http.Request, error) {
-	r, err := http.NewRequest(method, d.url, nil)
-	if err != nil {
-		return nil, err
-	}
-	r.Header.Set("User-Agent", "go downloader")
-	return r, nil
-}
-
-func (d *Downloader) getHttpClient() *http.Client {
-	if d.proxyUrl != "" {
-		return d.getHttpClientFromProxy(d.proxyUrl)
-	}
-	return http.DefaultClient
-}
-
-func (d *Downloader) getHttpClientFromProxy(givenUrl string) *http.Client {
-	proxyUrl, _ := url.Parse(givenUrl)
-	tr := &http.Transport{
-		Proxy:           http.ProxyURL(proxyUrl),
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	return &http.Client{Transport: tr}
 }
 
 func (d *Downloader) downloadPart(c filePart) error {
@@ -255,26 +280,4 @@ func (d *Downloader) setBar(length int) {
 			BarEnd:        "]",
 		}),
 	)
-}
-
-func getFileSize(resp *http.Response) int {
-	contentLength := resp.Header.Get("Content-Length")
-	fileSize, err := strconv.Atoi(contentLength)
-	if err != nil {
-		log.Fatalf("cannot process, strconv.Atoi.err is %s", err.Error())
-	}
-	return fileSize
-}
-
-func getFilename(resp *http.Response) string {
-	contentDisposition := resp.Header.Get("Content-Disposition")
-	if contentDisposition != "" {
-		_, params, err := mime.ParseMediaType(contentDisposition)
-		if err != nil {
-			log.Fatalf("mime.ParseMediaType.err is %s", err)
-		}
-		return params["filename"]
-	}
-	filename := filepath.Base(resp.Request.URL.Path)
-	return filename
 }
