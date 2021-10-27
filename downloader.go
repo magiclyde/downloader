@@ -98,9 +98,8 @@ func (d *Downloader) Run() error {
 		return err
 	}
 
-	//https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
 	if resp.Header.Get("Accept-Ranges") != "bytes" {
-		//服务器不支持文件断点续传
+		//服务器不支持文件断点续传, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
 		return d.singleDownload()
 	}
 
