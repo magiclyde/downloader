@@ -168,6 +168,7 @@ func (d *Downloader) singleDownload() error {
 
 	buf := make([]byte, 32*1024)
 	_, err = io.CopyBuffer(io.MultiWriter(f, d.bar), resp.Body, buf)
+	fmt.Println("") // newline
 	return err
 }
 
@@ -258,7 +259,7 @@ func (d *Downloader) mergeFileParts() error {
 		return errors.New("文件不完整")
 	}
 
-	fmt.Println("")
+	fmt.Println("") // newline
 
 	return nil
 }

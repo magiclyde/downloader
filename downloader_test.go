@@ -12,15 +12,19 @@ import (
 )
 
 func TestDownloader_Run(t *testing.T) {
-	url := "https://openresty.org/download/agentzh-nginx-tutorials-zhcn.pdf"
 	options := []Option{
 		WithTotalPart(5),
 		WithOutputDir("/tmp"),
-		WithOutputFilename("nginx.pdf"),
 	}
 
-	downloader := NewDownloader(url, options...)
-	if err := downloader.Run(); err != nil {
-		t.Errorf("downloader.Run().err:%s", err.Error())
+	for _, url := range []string{
+		"http://dl.magiclyde.com/xhprof-0.9.4.tgz",                        // Accept-Ranges: none
+		"https://openresty.org/download/agentzh-nginx-tutorials-zhcn.pdf", // Accept-Ranges: bytes
+	} {
+		downloader := NewDownloader(url, options...)
+		if err := downloader.Run(); err != nil {
+			t.Errorf("downloader.Run().err:%s", err.Error())
+		}
+		t.Logf("ok, %s", url)
 	}
 }
