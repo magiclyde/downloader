@@ -3,8 +3,10 @@
  * @author: clyde
  * @date: 2021/10/27 上午11:15
  * @note: HTTP 断点续传多线程下载大文件
- * @refer: https://mojotv.cn/go/go-range-download
- */
+ * @refer:
+	https://mojotv.cn/go/go-range-download
+	https://polarisxu.studygolang.com/posts/go/action/build-a-concurrent-file-downloader/
+*/
 
 package downloader
 
@@ -22,6 +24,9 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+
+	"github.com/k0kubun/go-ansi"
+	"github.com/schollz/progressbar/v3"
 )
 
 //filePart 文件分片
@@ -41,6 +46,7 @@ type Downloader struct {
 	outputDir      string
 	outputFilename string
 	proxyUrl       string
+	bar            *progressbar.ProgressBar
 }
 
 type Option func(*Downloader)
@@ -91,7 +97,10 @@ func (d *Downloader) Run() error {
 	if d.outputFilename == "" {
 		d.outputFilename = getFilename(resp)
 	}
+
 	d.fileSize = getFileSize(resp)
+	d.setBar(d.fileSize)
+
 	d.doneFilePart = make([]filePart, d.totalPart)
 
 	fileParts := make([]filePart, d.totalPart)
@@ -181,7 +190,7 @@ func (d *Downloader) downloadPart(c filePart) error {
 		return err
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%v-%v", c.from, c.to))
-	log.Printf("开始[%d]下载 from:%d to:%d\n", c.index, c.from, c.to)
+	//log.Printf("开始[%d]下载 from:%d to:%d\n", c.index, c.from, c.to)
 
 	client := d.getHttpClient()
 	resp, err := client.Do(req)
@@ -197,17 +206,17 @@ func (d *Downloader) downloadPart(c filePart) error {
 	if err != nil {
 		return err
 	}
-	if len(byt) != (c.to - c.from + 1) {
+	partLen := len(byt)
+	if partLen != (c.to - c.from + 1) {
 		return errors.New("下载文件分片长度错误")
 	}
 	c.data = byt
 	d.doneFilePart[c.index] = c
+	d.bar.Add(partLen)
 	return nil
 }
 
 func (d *Downloader) mergeFileParts() error {
-	log.Println("开始合并文件")
-
 	path := filepath.Join(d.outputDir, d.outputFilename)
 	mergedFile, err := os.Create(path)
 	if err != nil {
@@ -225,9 +234,27 @@ func (d *Downloader) mergeFileParts() error {
 		return errors.New("文件不完整")
 	}
 
-	log.Printf("文件下载完成, see %s", path)
+	fmt.Println("")
 
 	return nil
+}
+
+func (d *Downloader) setBar(length int) {
+	d.bar = progressbar.NewOptions(
+		length,
+		progressbar.OptionSetWriter(ansi.NewAnsiStdout()),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetWidth(50),
+		progressbar.OptionSetDescription("downloading..."),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "[green]=[reset]",
+			SaucerHead:    "[green]>[reset]",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
 }
 
 func getFileSize(resp *http.Response) int {
