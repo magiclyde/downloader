@@ -222,6 +222,7 @@ func (d *Downloader) downloadPart(c filePart) error {
 	if err != nil {
 		return err
 	}
+	// https://www.belugacdn.com/http-response-codes/
 	if resp.StatusCode > 299 {
 		return fmt.Errorf("服务器错误状态码: %d", resp.StatusCode)
 	}
