@@ -29,7 +29,7 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-//filePart 文件分片
+// filePart 文件分片
 type filePart struct {
 	index int    //文件分片的序号
 	from  int    //开始 byte
@@ -37,7 +37,7 @@ type filePart struct {
 	data  []byte //http 下载得到的文件内容
 }
 
-//Downloader 文件下载器
+// Downloader 文件下载器
 type Downloader struct {
 	url            string
 	fileSize       int
@@ -99,7 +99,7 @@ func (d *Downloader) Run() error {
 	}
 
 	if resp.Header.Get("Accept-Ranges") != "bytes" {
-		//服务器不支持文件断点续传, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
+		// 服务器不支持文件断点续传, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
 		return d.singleDownload()
 	}
 
@@ -189,7 +189,7 @@ func (d *Downloader) multiDownload() error {
 		if i < d.totalPart-1 {
 			fileParts[i].to = fileParts[i].from + eachSize
 		} else {
-			//the last filePart
+			// the last filePart
 			fileParts[i].to = d.fileSize - 1
 		}
 	}
@@ -215,7 +215,6 @@ func (d *Downloader) downloadPart(c filePart) error {
 		return err
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%v-%v", c.from, c.to))
-	//log.Printf("开始[%d]下载 from:%d to:%d\n", c.index, c.from, c.to)
 
 	client := d.getHttpClient()
 	resp, err := client.Do(req)
