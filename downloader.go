@@ -242,8 +242,8 @@ func (d *Downloader) downloadPart(c filePart) error {
 }
 
 func (d *Downloader) mergeFileParts() error {
-	path := filepath.Join(d.outputDir, d.outputFilename)
-	mergedFile, err := os.Create(path)
+	file := filepath.Join(d.outputDir, d.outputFilename)
+	mergedFile, err := os.Create(file)
 	if err != nil {
 		return err
 	}
