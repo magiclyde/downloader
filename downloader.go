@@ -29,6 +29,11 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
+const MAX_FILE_SIZE = 1024 * 1024 * 100 // 100MB
+const BUFFER_SIZE = 1024 * 1024 * 10
+
+var ERR_FILE_IS_INCOMPLETE = errors.New("文件不完整")
+
 // filePart 文件分片
 type filePart struct {
 	index int    //文件分片的序号
@@ -157,7 +162,8 @@ func (d *Downloader) singleDownload() error {
 	}
 	defer resp.Body.Close()
 
-	d.setBar(int(resp.ContentLength))
+	contentLength := int(resp.ContentLength)
+	d.setBar(contentLength)
 
 	file := filepath.Join(d.outputDir, d.outputFilename)
 	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
@@ -166,10 +172,57 @@ func (d *Downloader) singleDownload() error {
 	}
 	defer f.Close()
 
-	buf := make([]byte, 32*1024)
-	_, err = io.CopyBuffer(io.MultiWriter(f, d.bar), resp.Body, buf)
-	fmt.Println("") // newline
-	return err
+	buf := make([]byte, BUFFER_SIZE)
+
+	if contentLength <= MAX_FILE_SIZE {
+		_, err = io.CopyBuffer(io.MultiWriter(f, d.bar), resp.Body, buf)
+		newLine()
+		return err
+	}
+
+	// 大文件分片逐步写入
+	fn := func(f io.Writer, buf []byte, n int) error {
+		if n <= 0 {
+			return nil
+		}
+		if _, err := f.Write(buf[:n]); err != nil {
+			return err
+		}
+		if err := d.bar.Add(n); err != nil {
+			return err
+		}
+		newLine()
+		return nil
+	}
+	var totalSize int
+	var n int
+	for {
+		n, err = resp.Body.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				// got last piece
+				err = fn(f, buf, n)
+				if err != nil {
+					break
+				}
+				totalSize += n
+				err = nil
+			}
+			break
+		}
+		err = fn(f, buf, n)
+		if err != nil {
+			break
+		}
+		totalSize += n
+	}
+	if err != nil {
+		return err
+	}
+	if contentLength != totalSize {
+		return ERR_FILE_IS_INCOMPLETE
+	}
+	return nil
 }
 
 func (d *Downloader) multiDownload() error {
@@ -249,17 +302,17 @@ func (d *Downloader) mergeFileParts() error {
 	}
 	defer mergedFile.Close()
 
-	totalSize := 0
+	var totalSize int
 	for _, s := range d.doneFilePart {
 		mergedFile.Write(s.data)
 		totalSize += len(s.data)
 	}
 
 	if totalSize != d.fileSize {
-		return errors.New("文件不完整")
+		return ERR_FILE_IS_INCOMPLETE
 	}
 
-	fmt.Println("") // newline
+	newLine()
 
 	return nil
 }
@@ -280,4 +333,8 @@ func (d *Downloader) setBar(length int) {
 			BarEnd:        "]",
 		}),
 	)
+}
+
+func newLine() {
+	fmt.Println("")
 }
