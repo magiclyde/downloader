@@ -7,8 +7,11 @@ build:
 
 .PHONY: test
 test:
-	export GO111MODULE=on
-	go test -v -count=1 ./...
+	go test -v
+
+.PHONY: bench-test
+bench-test:
+	go test -bench=. -run=none
 
 .PHONY: clean
 clean:
