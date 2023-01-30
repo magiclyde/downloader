@@ -191,7 +191,6 @@ func (d *Downloader) singleDownload() error {
 		if err := d.bar.Add(n); err != nil {
 			return err
 		}
-		newLine()
 		return nil
 	}
 	var totalSize int
