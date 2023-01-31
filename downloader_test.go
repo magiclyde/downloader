@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	limit  = 3 // 下载站点有连接数限制，因而设定同時并行运行的 goroutine 上限
+	limit  = 3 // 下载站点有连接数限制，因而设定同時运行的 goroutine 上限
 	weight = 1 // 每个 goroutine 获取信号量资源的权重
 )
 
@@ -47,14 +47,15 @@ func TestDownloader_Run(t *testing.T) {
 	} {
 		wg.Add(1)
 		go func(url string) {
+			defer wg.Done()
+			defer s.Release(weight)
 			s.Acquire(context.Background(), weight)
 			downloader := NewDownloader(url, options...)
 			if err := downloader.Run(); err != nil {
-				t.Errorf("downloader.Run().err:%s", err.Error())
+				t.Errorf("downloader.Run().err: %s", err.Error())
+				return
 			}
 			t.Logf("ok, %s", url)
-			s.Release(weight)
-			wg.Done()
 		}(url)
 	}
 	wg.Wait()
