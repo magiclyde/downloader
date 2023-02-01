@@ -16,6 +16,7 @@ import (
 	"log"
 	"os"
 	"testing"
+	"time"
 )
 
 const (
@@ -24,6 +25,25 @@ const (
 )
 
 func TestDownloader_Run(t *testing.T) {
+	deadline := time.Now().Add(time.Second * 2)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	done := make(chan struct{})
+
+	go func() {
+		run(t, ctx, done)
+	}()
+
+	select {
+	case <-done:
+		t.Log("done")
+	case <-ctx.Done():
+		t.Error(ctx.Err())
+	}
+}
+
+func run(t *testing.T, ctx context.Context, done chan struct{}) {
 	parentDir := os.TempDir()
 	tmpDir, err := ioutil.TempDir(parentDir, "*-downloader")
 	if err != nil {
@@ -36,7 +56,7 @@ func TestDownloader_Run(t *testing.T) {
 		WithOutputDir(tmpDir),
 	}
 
-	eg, _ := errgroup.WithContext(context.Background())
+	eg, _ := errgroup.WithContext(ctx)
 	sem := semaphore.NewWeighted(limit)
 	for _, url := range []string{
 		"http://xxx", // invalid url
@@ -49,17 +69,20 @@ func TestDownloader_Run(t *testing.T) {
 		url := url
 		eg.Go(func() error {
 			defer sem.Release(weight)
-			if err := sem.Acquire(context.Background(), weight); err != nil {
+			if err := sem.Acquire(ctx, weight); err != nil {
 				return fmt.Errorf("failed to acquire semaphore: %s", err.Error())
 			}
 			downloader := NewDownloader(url, options...)
 			if err := downloader.Run(); err != nil {
 				return fmt.Errorf("downloader.Run got err: %s", err.Error())
 			}
+			t.Logf("download ok, %s", url)
 			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		t.Log(err)
 	}
+
+	done <- struct{}{}
 }
