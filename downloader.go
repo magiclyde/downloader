@@ -47,7 +47,6 @@ type Downloader struct {
 	url            string
 	fileSize       int64
 	totalPart      int
-	doneFilePart   []filePart
 	outputDir      string
 	outputFilename string
 	proxyUrl       string
@@ -184,8 +183,6 @@ func (d *Downloader) singleDownload() error {
 }
 
 func (d *Downloader) multiDownload() error {
-	d.doneFilePart = make([]filePart, d.totalPart)
-
 	fileParts := make([]filePart, d.totalPart)
 	eachSize := d.fileSize / int64(d.totalPart)
 
