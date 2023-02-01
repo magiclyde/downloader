@@ -11,9 +11,13 @@
 package downloader
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/k0kubun/go-ansi"
+	"github.com/schollz/progressbar/v3"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"io/ioutil"
 	"log"
@@ -23,28 +27,25 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"sync"
-
-	"github.com/k0kubun/go-ansi"
-	"github.com/schollz/progressbar/v3"
+	"strconv"
 )
 
-const BUFFER_SIZE = 32 * 1024
+const BUFFER_SIZE = 64 * 1024
 
 var ERR_FILE_IS_INCOMPLETE = errors.New("文件不完整")
 
 // filePart 文件分片
 type filePart struct {
 	index int    // 文件分片的序号
-	from  int    // 开始 byte
-	to    int    // 结束 byte
+	from  int64  // 开始 byte
+	to    int64  // 结束 byte
 	data  []byte // http 下载得到的文件内容
 }
 
 // Downloader 文件下载器
 type Downloader struct {
 	url            string
-	fileSize       int
+	fileSize       int64
 	totalPart      int
 	doneFilePart   []filePart
 	outputDir      string
@@ -97,14 +98,28 @@ func (d *Downloader) Run() error {
 		return err
 	}
 
+	fi, err := os.Stat(d.getAbsFileName())
+	if err == nil && fi.Size() == resp.ContentLength {
+		log.Println("file already exist")
+		return nil
+	}
+
 	d.setBar(resp.ContentLength)
-	d.fileSize = int(resp.ContentLength)
+	d.fileSize = resp.ContentLength
 
 	if resp.Header.Get("Accept-Ranges") != "bytes" {
 		// 服务器不支持文件断点续传, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
 		return d.singleDownload()
 	}
 	return d.multiDownload()
+}
+
+func (d *Downloader) getAbsFileName() string {
+	return filepath.Join(d.outputDir, d.outputFilename)
+}
+
+func (d *Downloader) getAbsFilePartName(i int) string {
+	return filepath.Join(d.outputDir, d.outputFilename+"."+strconv.Itoa(i))
 }
 
 func (d *Downloader) head() (resp *http.Response, err error) {
@@ -157,8 +172,7 @@ func (d *Downloader) singleDownload() error {
 	}
 	defer resp.Body.Close()
 
-	file := filepath.Join(d.outputDir, d.outputFilename)
-	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
+	f, err := os.OpenFile(d.getAbsFileName(), os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		return err
 	}
@@ -173,7 +187,7 @@ func (d *Downloader) multiDownload() error {
 	d.doneFilePart = make([]filePart, d.totalPart)
 
 	fileParts := make([]filePart, d.totalPart)
-	eachSize := d.fileSize / d.totalPart
+	eachSize := d.fileSize / int64(d.totalPart)
 
 	for i := range fileParts {
 		fileParts[i].index = i
@@ -190,22 +204,36 @@ func (d *Downloader) multiDownload() error {
 		}
 	}
 
-	var wg sync.WaitGroup
+	ctx := context.Background()
+	eg, _ := errgroup.WithContext(ctx)
 	for _, part := range fileParts {
-		wg.Add(1)
-		go func(part filePart) {
-			defer wg.Done()
+		part := part
+		eg.Go(func() error {
 			if err := d.downloadPart(part); err != nil {
-				log.Printf("下载分片文件 %+v 失败了，原因是 %s", part, err.Error())
+				return fmt.Errorf("下载分片文件 %+v 失败了，原因是 %s", part, err.Error())
 			}
-		}(part)
+			return nil
+		})
 	}
-	wg.Wait()
+	if err := eg.Wait(); err != nil {
+		return err
+	}
 
 	return d.mergeFileParts()
 }
 
 func (d *Downloader) downloadPart(c filePart) error {
+	partLen := c.to - c.from + 1
+	partFileName := d.getAbsFilePartName(c.index)
+
+	fi, err := os.Stat(partFileName)
+	if err == nil {
+		if fi.Size() == partLen {
+			return nil
+		}
+		c.from += fi.Size()
+	}
+
 	req, err := d.getNewRequest("GET")
 	if err != nil {
 		return err
@@ -223,35 +251,43 @@ func (d *Downloader) downloadPart(c filePart) error {
 	}
 	defer resp.Body.Close()
 
-	byt, err := ioutil.ReadAll(resp.Body)
+	partFile, err := os.OpenFile(partFileName, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		return err
 	}
-	partLen := len(byt)
-	if partLen != (c.to - c.from + 1) {
-		return errors.New("下载文件分片长度错误")
-	}
-	c.data = byt
-	d.doneFilePart[c.index] = c
-	d.bar.Add(partLen)
-	return nil
+	defer partFile.Close()
+
+	buf := make([]byte, BUFFER_SIZE)
+	_, err = io.CopyBuffer(io.MultiWriter(partFile, d.bar), resp.Body, buf)
+	return err
 }
 
 func (d *Downloader) mergeFileParts() error {
-	file := filepath.Join(d.outputDir, d.outputFilename)
-	mergedFile, err := os.Create(file)
+	mergedFile, err := os.Create(d.getAbsFileName())
 	if err != nil {
 		return err
 	}
 	defer mergedFile.Close()
 
-	var totalSize int
-	for _, s := range d.doneFilePart {
-		mergedFile.Write(s.data)
-		totalSize += len(s.data)
+	var totalSize int64
+	for i := 0; i < d.totalPart; i++ {
+		data, err := ioutil.ReadFile(d.getAbsFilePartName(i))
+		if err != nil {
+			return fmt.Errorf("read part file got err: %s", err.Error())
+		}
+		n, err := mergedFile.Write(data)
+		if err != nil {
+			return fmt.Errorf("merge part file got err: %s", err.Error())
+		}
+		totalSize += int64(n)
 	}
+
 	if totalSize != d.fileSize {
 		return ERR_FILE_IS_INCOMPLETE
+	}
+
+	for i := 0; i < d.totalPart; i++ {
+		os.Remove(d.getAbsFilePartName(i))
 	}
 
 	return nil

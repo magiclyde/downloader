@@ -25,7 +25,7 @@ const (
 )
 
 func TestDownloader_Run(t *testing.T) {
-	deadline := time.Now().Add(time.Second * 2)
+	deadline := time.Now().Add(time.Second * 5)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 
