@@ -10,20 +10,18 @@ $ make
 ```markdown
 $ ./bin/downloader -h
 NAME:
-   downloader - File concurrency downloader
+downloader - File concurrency downloader
 
 USAGE:
-   downloader [global options] command [command options] [arguments...]
+downloader [global options] command [command options] [arguments...]
 
 COMMANDS:
-   help, h  Shows a list of commands or help for one command
+help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --url URL, -u URL                 URL to download
-   --filename filename, -f filename  Output filename
-   --dir dir, -d dir                 Output dir
-   --concurrency number, -n number   Concurrency number (default: 8)
-   --proxy URL, -p URL               Proxy URL
-   --help, -h                        show help (default: false)
-
+--filename filename, -f filename  Output filename
+--dir dir, -d dir                 The destination dir
+--concurrency number, -n number   Concurrency number (default: 8)
+--proxy URL, -p URL               Proxy URL
+--help, -h                        show help
 ```

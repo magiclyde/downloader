@@ -8,7 +8,10 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"runtime"
 
@@ -27,12 +30,6 @@ func main() {
 		Usage: "File concurrency downloader",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:     "url",
-				Aliases:  []string{"u"},
-				Usage:    "`URL` to download",
-				Required: true,
-			},
-			&cli.StringFlag{
 				Name:    "filename",
 				Aliases: []string{"f"},
 				Usage:   "Output `filename`",
@@ -40,7 +37,7 @@ func main() {
 			&cli.StringFlag{
 				Name:    "dir",
 				Aliases: []string{"d"},
-				Usage:   "Output `dir`",
+				Usage:   "The destination `dir`",
 			},
 			&cli.IntFlag{
 				Name:    "concurrency",
@@ -55,12 +52,19 @@ func main() {
 			},
 		},
 		Action: func(c *cli.Context) error {
-			givenUrl := c.String("url")
+			givenUrl := c.Args().First()
+			if len(givenUrl) < len("http://") {
+				return errors.New("url is invalid")
+			}
+			_, err := url.ParseRequestURI(givenUrl)
+			if err != nil {
+				return errors.New("url is invalid")
+			}
+
 			filename := c.String("filename")
 			dir := c.String("dir")
 			concurrency := c.Int("concurrency")
 			proxyUrl := c.String("proxy")
-
 			var options []Option
 			options = append(options, WithTotalPart(concurrency))
 			if filename != "" {
@@ -72,6 +76,7 @@ func main() {
 			if proxyUrl != "" {
 				options = append(options, WithProxyUrl(proxyUrl))
 			}
+
 			return NewDownloader(givenUrl, options...).Run()
 		},
 	}
@@ -80,4 +85,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	fmt.Println("")
 }

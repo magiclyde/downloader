@@ -35,10 +35,10 @@ var ERR_FILE_IS_INCOMPLETE = errors.New("文件不完整")
 
 // filePart 文件分片
 type filePart struct {
-	index int    //文件分片的序号
-	from  int    //开始 byte
-	to    int    //结束 byte
-	data  []byte //http 下载得到的文件内容
+	index int    // 文件分片的序号
+	from  int    // 开始 byte
+	to    int    // 结束 byte
+	data  []byte // http 下载得到的文件内容
 }
 
 // Downloader 文件下载器
@@ -81,36 +81,29 @@ func WithProxyUrl(url string) Option {
 
 func NewDownloader(url string, options ...Option) *Downloader {
 	d := &Downloader{
-		url:       url,
-		totalPart: runtime.NumCPU(),
+		url:            url,
+		outputFilename: path.Base(url),
+		totalPart:      runtime.NumCPU(),
 	}
-
 	for _, o := range options {
 		o(d)
 	}
-
 	return d
 }
 
 func (d *Downloader) Run() error {
-	if d.outputFilename == "" {
-		d.outputFilename = path.Base(d.url)
-	}
-
 	resp, err := d.head()
 	if err != nil {
 		return err
 	}
 
-	//d.bar = progressbar.DefaultBytes(resp.ContentLength, "downloading...")
 	d.setBar(resp.ContentLength)
+	d.fileSize = int(resp.ContentLength)
 
 	if resp.Header.Get("Accept-Ranges") != "bytes" {
 		// 服务器不支持文件断点续传, see https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Ranges
 		return d.singleDownload()
 	}
-
-	d.fileSize = int(resp.ContentLength)
 	return d.multiDownload()
 }
 
