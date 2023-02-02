@@ -51,6 +51,7 @@ type Downloader struct {
 	outputFilename string
 	proxyUrl       string
 	bar            *progressbar.ProgressBar
+	ctx            context.Context
 }
 
 type Option func(*Downloader)
@@ -79,11 +80,18 @@ func WithProxyUrl(url string) Option {
 	}
 }
 
+func WithContext(ctx context.Context) Option {
+	return func(d *Downloader) {
+		d.ctx = ctx
+	}
+}
+
 func NewDownloader(url string, options ...Option) *Downloader {
 	d := &Downloader{
 		url:            url,
 		outputFilename: path.Base(url),
 		totalPart:      runtime.NumCPU(),
+		ctx:            context.Background(),
 	}
 	for _, o := range options {
 		o(d)
@@ -144,7 +152,9 @@ func (d *Downloader) getNewRequest(method string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+	r.WithContext(d.ctx)
 	r.Header.Set("User-Agent", "go downloader")
+
 	return r, nil
 }
 
@@ -165,9 +175,14 @@ func (d *Downloader) getHttpClientFromProxy(givenUrl string) *http.Client {
 }
 
 func (d *Downloader) singleDownload() error {
-	resp, err := d.getHttpClient().Get(d.url)
+	req, err := d.getNewRequest("GET")
 	if err != nil {
 		return err
+	}
+
+	resp, err := d.getHttpClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("client.Do got err: %s", err.Error())
 	}
 	defer resp.Body.Close()
 
@@ -201,8 +216,7 @@ func (d *Downloader) multiDownload() error {
 		}
 	}
 
-	ctx := context.Background()
-	eg, _ := errgroup.WithContext(ctx)
+	eg, _ := errgroup.WithContext(d.ctx)
 	for _, part := range fileParts {
 		part := part
 		eg.Go(func() error {
@@ -237,10 +251,9 @@ func (d *Downloader) downloadPart(c filePart) error {
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%v-%v", c.from, c.to))
 
-	client := d.getHttpClient()
-	resp, err := client.Do(req)
+	resp, err := d.getHttpClient().Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("client.Do got err: %s", err.Error())
 	}
 	// https://www.belugacdn.com/http-response-codes/
 	if resp.StatusCode > 299 {

@@ -54,6 +54,7 @@ func run(t *testing.T, ctx context.Context, done chan struct{}) {
 	options := []Option{
 		WithTotalPart(5),
 		WithOutputDir(tmpDir),
+		WithContext(ctx),
 	}
 
 	eg, _ := errgroup.WithContext(ctx)
@@ -72,8 +73,7 @@ func run(t *testing.T, ctx context.Context, done chan struct{}) {
 			if err := sem.Acquire(ctx, weight); err != nil {
 				return fmt.Errorf("failed to acquire semaphore: %s", err.Error())
 			}
-			downloader := NewDownloader(url, options...)
-			if err := downloader.Run(); err != nil {
+			if err := NewDownloader(url, options...).Run(); err != nil {
 				return fmt.Errorf("downloader.Run got err: %s", err.Error())
 			}
 			t.Logf("download ok, %s", url)
